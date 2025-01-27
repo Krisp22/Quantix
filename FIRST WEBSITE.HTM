@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Defender</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #e94560;
+            --secondary-color: #16213e;
+            --accent-color: #4ecdc4;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        body {
+            background: var(--secondary-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #homeScreen, #instructionsScreen {
+            text-align: center;
+            color: white;
+            background: rgba(22, 33, 62, 0.9);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 0 50px rgba(233, 69, 96, 0.2);
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .game-title {
+            font-size: 3rem;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .btn {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            background: #ff6b6b;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        #gameCanvas {
+            border: 2px solid var(--primary-color);
+            max-width: 100%;
+            max-height: 100vh;
+        }
+
+        #controlPanel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        #controlPanel button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 50%;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s;
+        }
+
+        #controlPanel button:hover {
+            transform: scale(1.1);
+        }
+
+        #controlPanel button:active {
+            transform: scale(0.9);
+        }
+    </style>
+</head>
+<body>
+    <div id="homeScreen">
+        <h1 class="game-title">Quantum Defender</h1>
+        <button id="startBtn" class="btn">Start Game</button>
+        <button id="instructionsBtn" class="btn">Instructions</button>
+    </div>
+
+    <div id="instructionsScreen" style="display:none;">
+        <h2>How to Play</h2>
+        <p>Move your mouse to control the defender.</p>
+        <p>Click to shoot quantum bullets.</p>
+        <p>Destroy falling objects before they reach you.</p>
+        <p>Big objects require multiple hits.</p>
+        <button id="backBtn" class="btn">Back to Menu</button>
+    </div>
+
+    <canvas id="gameCanvas" style="display:none;"></canvas>
+    <div id="controlPanel" style="display:none;">
+        <button id="pauseBtn">⏸️</button>
+        <button id="muteBtn">🔊</button>
+    </div>
+
+    <script>
+        const homeScreen = document.getElementById('homeScreen');
+        const instructionsScreen = document.getElementById('instructionsScreen');
+        const gameCanvas = document.getElementById('gameCanvas');
+        const controlPanel = document.getElementById('controlPanel');
+        const startBtn = document.getElementById('startBtn');
+        const instructionsBtn = document.getElementById('instructionsBtn');
+        const backBtn = document.getElementById('backBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const muteBtn = document.getElementById('muteBtn');
+
+        const canvas = gameCanvas;
+        const ctx = canvas.getContext('2d');
+
+        let GAME_WIDTH, GAME_HEIGHT;
+        const PLAYER_SIZE = 40;
+        const BULLET_SIZE = 5;
+        const OBJECT_SIZE = 20;
+        const BIG_OBJECT_SIZE = 80;
+        const OBJECT_SPEED = 2;
+        const BULLET_SPEED = 10;
+
+        let player, bullets, objects, bigObject, score, gameLoop, isPaused, isMuted, difficulty;
+
+        // Sound effects
+        const shootSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-short-laser-gun-shot-1670.mp3');
+        const popSound = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-bubble-pop-up-notification-2357.mp3');
+
+        function resizeCanvas() {
+            const maxWidth = window.innerWidth * 0.9;
+            const maxHeight = window.innerHeight * 0.9;
+            const aspectRatio = 2 / 3;
+
+            if (maxWidth / aspectRatio <= maxHeight) {
+                GAME_WIDTH = maxWidth;
+                GAME_HEIGHT = maxWidth / aspectRatio;
+            } else {
+                GAME_HEIGHT = maxHeight;
+                GAME_WIDTH = maxHeight * aspectRatio;
+            }
+
+            canvas.width = GAME_WIDTH;
+            canvas.height = GAME_HEIGHT;
+        }
+
+        function initGame() {
+            resizeCanvas();
+            player = {
+                x: GAME_WIDTH / 2,
+                y: GAME_HEIGHT - PLAYER_SIZE
+            };
+            bullets = [];
+            objects = [];
+            bigObject = null;
+            score = 0;
+            isPaused = false;
+            isMuted = false;
+            difficulty = 1;
+        }
+
+        function startGame() {
+            initGame();
+            gameLoop = setInterval(update, 1000 / 60);
+            setInterval(spawnObject, 1000);
+            setInterval(increaseDifficulty, 30000);
+        }
+
+        function update() {
+            if (isPaused) return;
+
+            // Move bullets
+            bullets.forEach(bullet => {
+                bullet.y -= BULLET_SPEED;
+            });
+
+            // Move objects
+            objects.forEach(obj => {
+                obj.y += OBJECT_SPEED * difficulty;
+                obj.rotation += 0.05; // Add rotation for animation
+            });
+
+            // Move big object
+            if (bigObject) {
+                bigObject.y += OBJECT_SPEED * 0.5 * difficulty;
+                bigObject.rotation += 0.02; // Slower rotation for big object
+            }
+
+            // Check collisions
+            checkCollisions();
+
+            // Remove off-screen bullets and objects
+            bullets = bullets.filter(bullet => bullet.y > 0);
+            objects = objects.filter(obj => obj.y < GAME_HEIGHT);
+
+            // Check game over
+            if (objects.some(obj => obj.y + OBJECT_SIZE >= GAME_HEIGHT - PLAYER_SIZE) ||
+                (bigObject && bigObject.y + BIG_OBJECT_SIZE >= GAME_HEIGHT - PLAYER_SIZE)) {
+                gameOver();
+            }
+
+            // Draw everything
+            draw();
+        }
+
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#16213e';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+            // Draw player
+            ctx.fillStyle = '#e94560';
+            ctx.fillRect(player.x - PLAYER_SIZE/2, player.y - PLAYER_SIZE/2, PLAYER_SIZE, PLAYER_SIZE);
+
+            // Draw bullets
+            ctx.fillStyle = '#4ecdc4';
+            bullets.forEach(bullet => {
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, BULLET_SIZE, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw objects with rotation
+            objects.forEach(obj => {
+                ctx.save();
+                ctx.translate(obj.x, obj.y);
+                ctx.rotate(obj.rotation);
+                ctx.fillStyle = `hsl(${obj.hue}, 100%, 50%)`;
+                ctx.beginPath();
+                ctx.arc(0, 0, OBJECT_SIZE, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // Draw big object with rotation
+            if (bigObject) {
+                ctx.save();
+                ctx.translate(bigObject.x, bigObject.y);
+                ctx.rotate(bigObject.rotation);
+                ctx.fillStyle = '#ff6b6b';
+                ctx.beginPath();
+                ctx.arc(0, 0, BIG_OBJECT_SIZE, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = '30px Orbitron';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(bigObject.health.toString(), 0, 0);
+                ctx.restore();
+            }
+
+            // Draw score
+            ctx.fillStyle = '#fff';
+            ctx.font = '24px Orbitron';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Score: ${score}`, 10, 30);
+
+            // Draw difficulty
+            ctx.fillStyle = '#fff';
+            ctx.font = '18px Orbitron';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Difficulty: ${difficulty.toFixed(1)}`, 10, 60);
+        }
+
+        function spawnObject() {
+            if (isPaused) return;
+
+            if (Math.random() < 0.1 && !bigObject) {
+                bigObject = {
+                    x: Math.random() * (GAME_WIDTH - BIG_OBJECT_SIZE * 2) + BIG_OBJECT_SIZE,
+                    y: 0,
+                    health: 10,
+                    rotation: 0
+                };
+            } else {
+                objects.push({
+                    x: Math.random() * (GAME_WIDTH - OBJECT_SIZE * 2) + OBJECT_SIZE,
+                    y: 0,
+                    hue: Math.random() * 360,
+                    rotation: 0
+                });
+            }
+        }
+
+        function checkCollisions() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                for (let j = objects.length - 1; j >= 0; j--) {
+                    if (distance(bullets[i], objects[j]) < BULLET_SIZE + OBJECT_SIZE) {
+                        objects.splice(j, 1);
+                        bullets.splice(i, 1);
+                        score++;
+                        if (!isMuted) popSound.play();
+                        break;
+                    }
+                }
+
+                if (bigObject && distance(bullets[i], bigObject) < BULLET_SIZE + BIG_OBJECT_SIZE) {
+                    bigObject.health--;
+                    bullets.splice(i, 1);
+                    if (!isMuted) popSound.play();
+                    if (bigObject.health <= 0) {
+                        score += 20;
+                        bigObject = null;
+                    }
+                }
+            }
+        }
+
+        function distance(a, b) {
+            return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+        }
+
+        function gameOver() {
+            clearInterval(gameLoop);
+            alert(`Game Over! Your score: ${score}`);
+            homeScreen.style.display = 'block';
+            gameCanvas.style.display = 'none';
+            controlPanel.style.display = 'none';
+        }
+
+        function increaseDifficulty() {
+            if (!isPaused) {
+                difficulty += 0.1;
+            }
+        }
+
+        canvas.addEventListener('mousemove', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            player.x = (event.clientX - rect.left) * (GAME_WIDTH / rect.width);
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!isPaused) {
+                bullets.push({
+                    x: player.x,
+                    y: player.y - PLAYER_SIZE/2
+                });
+                if (!isMuted) shootSound.play();
+            }
+        });
+
+        startBtn.addEventListener('click', () => {
+            homeScreen.style.display = 'none';
+            gameCanvas.style.display = 'block';
+            controlPanel.style.display = 'flex';
+            startGame();
+        });
+
+        instructionsBtn.addEventListener('click', () => {
+            homeScreen.style.display = 'none';
+            instructionsScreen.style.display = 'block';
+        });
+
+        backBtn.addEventListener('click', () => {
+            instructionsScreen.style.display = 'none';
+            homeScreen.style.display = 'block';
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            pauseBtn.textContent = isPaused ? '▶️' : '⏸️';
+        });
+
+        muteBtn.addEventListener('click', () => {
+            isMuted = !isMuted;
+            muteBtn.textContent = isMuted ? '🔇' : '🔊';
+        });
+
+        window.addEventListener('resize', resizeCanvas);
+
+        // Initial setup
+        resizeCanvas();
+    </script>
+</body>
+</html>
